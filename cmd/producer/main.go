@@ -1,10 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
+	"github.com/rabbitmq/amqp091-go"
+
 	"github.com/lechuhuuha/eda-rabbitmq/internal"
+)
+
+var (
+	exchangeEvent = "customer_events"
 )
 
 func main() {
@@ -27,15 +34,34 @@ func main() {
 		panic(err)
 	}
 
-	if err := client.CreateExchange("customer_events", "topic", false, false); err != nil {
+	if err := client.CreateExchange(exchangeEvent, "topic", false, false); err != nil {
 		panic(err)
 	}
 
-	if err := client.CreateBinding("customers_created", "customers.created.*", "customer_events"); err != nil {
+	if err := client.CreateBinding("customers_created", "customers.created.*", exchangeEvent); err != nil {
 		panic(err)
 	}
 
-	if err := client.CreateBinding("customers_test", "customers.*", "customer_events"); err != nil {
+	if err := client.CreateBinding("customers_test", "customers.*", exchangeEvent); err != nil {
+		panic(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := client.Send(ctx, exchangeEvent, "customers.created.us", amqp091.Publishing{
+		ContentType:  "text/plain",
+		DeliveryMode: amqp091.Persistent,
+		Body:         []byte(`Test message between services`),
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := client.Send(ctx, exchangeEvent, "customers.created.test", amqp091.Publishing{
+		ContentType:  "text/plain",
+		DeliveryMode: amqp091.Transient,
+		Body:         []byte(`Test message between services undurable`),
+	}); err != nil {
 		panic(err)
 	}
 
