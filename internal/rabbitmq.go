@@ -22,6 +22,10 @@ func NewRabbitMQClient(conn *amqp.Connection) (RabbitClient, error) {
 		return RabbitClient{}, err
 	}
 
+	if err := ch.Confirm(false); err != nil {
+		return RabbitClient{}, err
+	}
+
 	return RabbitClient{
 		conn: conn,
 		ch:   ch,
@@ -32,13 +36,20 @@ func (rc RabbitClient) Close() error {
 	return rc.ch.Close()
 }
 
-func (rc RabbitClient) CreateQueue(queueName string, durable, autoDelete bool) error {
-	_, err := rc.ch.QueueDeclare(queueName, durable, autoDelete, false, false, nil)
-	return err
+func (rc RabbitClient) CreateQueue(queueName string, durable, autoDelete bool) (amqp.Queue, error) {
+	q, err := rc.ch.QueueDeclare(queueName, durable, autoDelete, false, false, nil)
+	if err != nil {
+		return amqp.Queue{}, err
+	}
+	return q, err
 }
 
 func (rc RabbitClient) CreateExchange(name, exchangeType string, durable, autoDelete bool) error {
 	return rc.ch.ExchangeDeclare(name, exchangeType, durable, autoDelete, false, false, nil)
+}
+
+func (rc RabbitClient) DeleteExchange(name string) error {
+	return rc.ch.ExchangeDelete(name, false, false)
 }
 
 func (rc RabbitClient) CreateBinding(name, binding, exchange string) error {
@@ -46,7 +57,14 @@ func (rc RabbitClient) CreateBinding(name, binding, exchange string) error {
 }
 
 func (rc RabbitClient) Send(ctx context.Context, exchange, routingKey string, options amqp.Publishing) error {
-	return rc.ch.PublishWithContext(ctx, exchange, routingKey, true, false, options)
+	confirmation, err := rc.ch.PublishWithDeferredConfirmWithContext(ctx, exchange, routingKey, true, false, options)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(confirmation.Wait())
+
+	return nil
 }
 
 func (rc RabbitClient) Consume(queue, consumer string, autoAck bool) (<-chan amqp.Delivery, error) {

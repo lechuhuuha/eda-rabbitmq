@@ -7,11 +7,8 @@ import (
 
 	"github.com/rabbitmq/amqp091-go"
 
+	"github.com/lechuhuuha/eda-rabbitmq/constant"
 	"github.com/lechuhuuha/eda-rabbitmq/internal"
-)
-
-var (
-	exchangeEvent = "customer_events"
 )
 
 func main() {
@@ -25,48 +22,34 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	defer client.Close()
 
-	if err := client.CreateQueue("customers_created", true, false); err != nil {
+	consumeConn, err := internal.ConnectRabbitMQ("lchh", "lchh-secret", "localhost:5672", "customers")
+	if err != nil {
 		panic(err)
 	}
+	defer consumeConn.Close()
 
-	if err := client.CreateQueue("customers_test", false, true); err != nil {
+	consumeClient, err := internal.NewRabbitMQClient(consumeConn)
+	if err != nil {
 		panic(err)
 	}
+	defer consumeClient.Close()
 
-	if err := client.CreateExchange(exchangeEvent, "topic", false, false); err != nil {
-		panic(err)
-	}
-
-	if err := client.CreateBinding("customers_created", "customers.created.*", exchangeEvent); err != nil {
-		panic(err)
-	}
-
-	if err := client.CreateBinding("customers_test", "customers.*", exchangeEvent); err != nil {
-		panic(err)
-	}
+	time.Sleep(10 * time.Second)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	if err := client.Send(ctx, exchangeEvent, "customers.created.us", amqp091.Publishing{
-		ContentType:  "text/plain",
-		DeliveryMode: amqp091.Persistent,
-		Body:         []byte(`Test message between services`),
-	}); err != nil {
-		panic(err)
-	}
-
-	if err := client.Send(ctx, exchangeEvent, "customers.created.test", amqp091.Publishing{
-		ContentType:  "text/plain",
-		DeliveryMode: amqp091.Transient,
-		Body:         []byte(`Test message between services undurable`),
-	}); err != nil {
-		panic(err)
+	for i := 0; i < 5; i++ {
+		if err := client.Send(ctx, constant.ExchangeEvent, "customers.created.us", amqp091.Publishing{
+			ContentType:  "text/plain",
+			DeliveryMode: amqp091.Persistent,
+			Body:         []byte(`Test message between services`),
+		}); err != nil {
+			panic(err)
+		}
 	}
 
 	defer client.Close()
-
-	time.Sleep(20 * time.Second)
 	fmt.Println(client)
 }

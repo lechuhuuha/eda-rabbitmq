@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"time"
 
+	"github.com/lechuhuuha/eda-rabbitmq/constant"
 	"github.com/lechuhuuha/eda-rabbitmq/internal"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -18,22 +22,42 @@ func main() {
 		panic(err)
 	}
 
+	q, err := client.CreateQueue("", true, false)
+	if err != nil {
+		panic(err)
+	}
+
+	if err := client.CreateBinding(q.Name, "", constant.ExchangeEvent); err != nil {
+		panic(err)
+	}
+
 	messageBus, err := client.Consume("customers_created", "email-service", false)
 	if err != nil {
 		panic(err)
 	}
-	var blockChan chan struct{}
+
+	var blockCh chan struct{}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	g, _ := errgroup.WithContext(ctx)
+	g.SetLimit(10)
+
 	go func() {
 		for message := range messageBus {
-			fmt.Println("New message", message)
-			if err := message.Ack(false); err != nil {
-				fmt.Println(err)
-				continue
-			}
-			fmt.Println("Acked the message", message.AppId)
+			msg := message
+			g.Go(func() error {
+				fmt.Println("New message", msg)
+				if err := msg.Ack(false); err != nil {
+					fmt.Println("Ack mess failed", err)
+					return err
+				}
+				fmt.Println("Acked message")
+				return nil
+			})
 		}
 	}()
-	fmt.Println("Press CTRL + C to exit")
 
-	<-blockChan
+	<-blockCh
 }
